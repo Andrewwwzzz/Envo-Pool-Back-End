@@ -7,8 +7,10 @@ const bookingRoutes = require("./routes/booking.routes");
 const paymentRoutes = require("./routes/payment.routes");
 const jwksRoutes = require("./routes/jwks.routes");
 const singpassRoutes = require("./routes/singpass.routes");
+const authRoutes = require("./routes/auth.routes");
 
 const app = express();
+app.use("/auth", authRoutes);
 
 /* ================================
    Health Check
