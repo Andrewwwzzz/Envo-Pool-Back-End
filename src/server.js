@@ -1,3 +1,5 @@
+console.log("cwd:", process.cwd());
+
 require("dotenv").config()
 
 const express = require("express")
