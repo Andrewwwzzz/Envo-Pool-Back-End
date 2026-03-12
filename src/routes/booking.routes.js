@@ -2,11 +2,8 @@ const express = require("express")
 const router = express.Router()
 
 const Booking = require("../models/Booking")
-const Table = require("../models/table") // keep lowercase if your file is table.js
+const Table = require("../models/table")
 
-/*
-CREATE BOOKING
-*/
 router.post("/create", async (req, res) => {
 
   try {
@@ -23,14 +20,9 @@ router.post("/create", async (req, res) => {
 
     }
 
-    /*
-    IMPORTANT: your Mongo field is hardware_id
-    */
     const table = await Table.findOne({ hardware_id: tableId })
 
     if (!table) {
-
-      console.log("Table not found for hardware_id:", tableId)
 
       return res.status(404).json({
         error: "Table not found"
@@ -38,13 +30,10 @@ router.post("/create", async (req, res) => {
 
     }
 
-    /*
-    Check if session already booked
-    */
     const existing = await Booking.findOne({
 
       tableId: table._id,
-      sessionId: sessionId,
+      sessionId,
       status: { $in: ["pending_payment", "confirmed"] }
 
     })
@@ -69,6 +58,7 @@ router.post("/create", async (req, res) => {
       status: "pending_payment",
       paymentStatus: "unpaid",
       paymentLock: false,
+
       expiresAt
 
     })
@@ -77,7 +67,7 @@ router.post("/create", async (req, res) => {
 
     console.log("Booking created:", booking._id)
 
-    return res.json({
+    res.json({
 
       message: "Booking created",
       bookingId: booking._id
@@ -88,7 +78,7 @@ router.post("/create", async (req, res) => {
 
     console.error("Booking creation error:", error)
 
-    return res.status(500).json({
+    res.status(500).json({
       error: "Booking creation failed"
     })
 
