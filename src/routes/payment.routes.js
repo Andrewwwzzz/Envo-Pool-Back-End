@@ -67,8 +67,7 @@ router.post("/create-checkout", async (req, res) => {
         bookingId: booking._id.toString()
       },
 
-      // expire stripe checkout after 4m50s
-      expires_at: Math.floor(Date.now() / 1000) + 290
+
 
     })
 
