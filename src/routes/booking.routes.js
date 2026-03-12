@@ -4,19 +4,13 @@ const router = express.Router()
 const Booking = require("../models/Booking")
 const Table = require("../models/table")
 
-
-
-/*
-CREATE BOOKING
-*/
-
 router.post("/create", async (req, res) => {
 
   try {
 
-    const { userId, tableId, startTime, endTime } = req.body
+    const { userId, tableId, sessionId } = req.body
 
-    if (!userId |!tableId | !startTime || !endTime) {
+    if (!userId | !tableId | !sessionId) {
 
       return res.status(400).json({
         error: "Missing required fields"
@@ -24,8 +18,6 @@ router.post("/create", async (req, res) => {
 
     }
 
-
-    // convert hardwareId (T1,T2) → MongoDB table _id
     const table = await Table.findOne({ hardwareId: tableId })
 
     if (!table) {
@@ -36,16 +28,13 @@ router.post("/create", async (req, res) => {
 
     }
 
-
     const booking = new Booking({
 
       userId: userId,
 
       tableId: table._id,
 
-      startTime: new Date(startTime),
-
-      endTime: new Date(endTime),
+      sessionId: sessionId,
 
       status: "pending_payment",
 
@@ -55,26 +44,21 @@ router.post("/create", async (req, res) => {
 
     })
 
-
     await booking.save()
-
 
     res.json({
       message: "Booking created",
       bookingId: booking._id
     })
 
-
   } catch (error) {
 
     console.log("Booking creation error:", error)
 
-
-    // Handle duplicate booking (race condition protection)
     if (error.code === 11000) {
 
       return res.status(409).json({
-        error: "Time slot already booked"
+        error: "Session already booked"
       })
 
     }
@@ -86,7 +70,5 @@ router.post("/create", async (req, res) => {
   }
 
 })
-
-
 
 module.exports = router

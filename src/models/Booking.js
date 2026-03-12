@@ -12,13 +12,8 @@ const BookingSchema = new mongoose.Schema({
     required: true
   },
 
-  startTime: {
-    type: Date,
-    required: true
-  },
-
-  endTime: {
-    type: Date,
+  sessionId: {
+    type: String,
     required: true
   },
 
@@ -34,26 +29,20 @@ const BookingSchema = new mongoose.Schema({
     default: "unpaid"
   },
 
-  stripeSessionId: {
-    type: String
-  },
+  stripeSessionId: String,
 
-  expiresAt: {
-    type: Date
-  }
+  expiresAt: Date
 
 }, { timestamps: true })
 
 
 
 /*
-Database-level protection against double booking
+Lock booking by table + session
 */
 BookingSchema.index(
-  { tableId: 1, startTime: 1, endTime: 1 },
+  { tableId: 1, sessionId: 1 },
   { unique: true }
 )
-
-
 
 module.exports = mongoose.model("Booking", BookingSchema)
