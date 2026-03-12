@@ -12,7 +12,14 @@ router.post("/create", async (req, res) => {
 
     console.log("BOOKING REQUEST:", req.body)
 
+
+
+    /*
+    Validate input
+    */
     if (!userId | !tableId | !sessionId) {
+
+      console.log("Missing fields")
 
       return res.status(400).json({
         error: "Missing required fields"
@@ -20,9 +27,18 @@ router.post("/create", async (req, res) => {
 
     }
 
+
+
+    /*
+    Find table
+    */
+    console.log("Looking for table:", tableId)
+
     const table = await Table.findOne({ hardwareId: tableId })
 
     if (!table) {
+
+      console.log("Table not found")
 
       return res.status(404).json({
         error: "Table not found"
@@ -30,40 +46,44 @@ router.post("/create", async (req, res) => {
 
     }
 
+    console.log("Table found:", table._id)
 
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000)
 
 
     /*
-    ATOMIC BOOKING CREATION
-    Prevents race condition
+    Check existing booking
     */
-    const booking = await Booking.findOneAndUpdate(
+    console.log("Checking existing booking")
 
-      {
-        tableId: table._id,
-        sessionId: sessionId,
-        status: { $in: ["pending_payment", "confirmed"] }
-      },
+    const existing = await Booking.findOne({
 
-      {},
+      tableId: table._id,
+      sessionId: sessionId,
+      status: { $in: ["pending_payment", "confirmed"] }
 
-      { new: true }
-
-    )
+    })
 
 
-    if (booking) {
+
+    if (existing) {
+
+      console.log("Booking already exists")
 
       return res.json({
         message: "Booking already exists",
-        bookingId: booking._id
+        bookingId: existing._id
       })
 
     }
 
 
-    const newBooking = new Booking({
+
+    /*
+    Create booking
+    */
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000)
+
+    const booking = new Booking({
 
       userId,
       tableId: table._id,
@@ -78,15 +98,22 @@ router.post("/create", async (req, res) => {
     })
 
 
-    await newBooking.save()
+
+    console.log("Saving booking...")
+
+    await booking.save()
+
+    console.log("Booking created:", booking._id)
+
 
 
     return res.json({
 
       message: "Booking created",
-      bookingId: newBooking._id
+      bookingId: booking._id
 
     })
+
 
 
   } catch (error) {
