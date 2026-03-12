@@ -40,7 +40,7 @@ router.post("/create", async (req, res) => {
     Find table by hardwareId
     */
     const table = await Table.findOne({
-      hardwareId: tableId
+      hardware_id: tableId
     })
 
     if (!table) {
