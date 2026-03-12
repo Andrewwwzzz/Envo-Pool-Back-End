@@ -4,11 +4,6 @@ const router = express.Router()
 const Booking = require("../models/Booking")
 const Table = require("../models/table")
 
-
-
-/*
-CREATE BOOKING
-*/
 router.post("/create", async (req, res) => {
 
   try {
@@ -17,7 +12,13 @@ router.post("/create", async (req, res) => {
 
     console.log("BOOKING REQUEST:", req.body)
 
+    if (!userId | !tableId | !sessionId) {
 
+      return res.status(400).json({
+        error: "Missing required fields"
+      })
+
+    }
 
     const table = await Table.findOne({ hardwareId: tableId })
 
@@ -30,35 +31,39 @@ router.post("/create", async (req, res) => {
     }
 
 
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000)
+
 
     /*
-    Check for existing booking
+    ATOMIC BOOKING CREATION
+    Prevents race condition
     */
-    const existing = await Booking.findOne({
+    const booking = await Booking.findOneAndUpdate(
 
-      tableId: table._id,
-      sessionId: sessionId,
-      status: { $in: ["pending_payment", "confirmed"] }
+      {
+        tableId: table._id,
+        sessionId: sessionId,
+        status: { $in: ["pending_payment", "confirmed"] }
+      },
 
-    })
+      {},
+
+      { new: true }
+
+    )
 
 
+    if (booking) {
 
-    if (existing) {
-
-      return res.status(409).json({
-        error: "Session already booked"
+      return res.json({
+        message: "Booking already exists",
+        bookingId: booking._id
       })
 
     }
 
 
-
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000)
-
-
-
-    const booking = new Booking({
+    const newBooking = new Booking({
 
       userId,
       tableId: table._id,
@@ -66,7 +71,6 @@ router.post("/create", async (req, res) => {
 
       status: "pending_payment",
       paymentStatus: "unpaid",
-
       paymentLock: false,
 
       expiresAt
@@ -74,32 +78,27 @@ router.post("/create", async (req, res) => {
     })
 
 
-
-    await booking.save()
-
+    await newBooking.save()
 
 
-    res.json({
+    return res.json({
 
       message: "Booking created",
-      bookingId: booking._id
+      bookingId: newBooking._id
 
     })
-
 
 
   } catch (error) {
 
     console.error("Booking creation error:", error)
 
-    res.status(500).json({
+    return res.status(500).json({
       error: "Booking creation failed"
     })
 
   }
 
 })
-
-
 
 module.exports = router
