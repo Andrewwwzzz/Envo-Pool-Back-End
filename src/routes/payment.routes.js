@@ -1,14 +1,13 @@
 const express = require("express")
 const router = express.Router()
 
-const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY)
+const Stripe = require("stripe")
+const stripe = Stripe(process.env.STRIPE_SECRET_KEY)
 
 const Booking = require("../models/Booking")
 
-
-
 /*
-CREATE STRIPE PAYNOW CHECKOUT
+CREATE STRIPE CHECKOUT SESSION
 */
 
 router.post("/create-checkout", async (req, res) => {
@@ -20,36 +19,34 @@ router.post("/create-checkout", async (req, res) => {
     const booking = await Booking.findById(bookingId)
 
     if (!booking) {
-      return res.status(404).json({
-        error: "Booking not found"
-      })
+      return res.status(404).json({ error: "Booking not found" })
     }
 
-    if (booking.paymentStatus === "paid") {
+    // Prevent payment if booking already expired
+    if (booking.expiresAt < new Date()) {
       return res.status(400).json({
-        error: "Booking already paid"
+        error: "Booking expired. Please create a new reservation."
       })
     }
 
     if (booking.status !== "pending_payment") {
       return res.status(400).json({
-        error: "Booking no longer valid"
+        error: "Booking already processed"
       })
     }
 
-
     const session = await stripe.checkout.sessions.create({
 
-      mode: "payment",
-
       payment_method_types: ["paynow"],
+
+      mode: "payment",
 
       line_items: [
         {
           price_data: {
             currency: "sgd",
             product_data: {
-              name: "Pool Table Booking"
+              name: "Pool Table Reservation"
             },
             unit_amount: amount
           },
@@ -64,20 +61,23 @@ router.post("/create-checkout", async (req, res) => {
         "https://anytimepoolsg.com/booking-cancelled",
 
       metadata: {
-        bookingId: booking._id.toString()
-      },
-
-
+        bookingId: bookingId
+      }
 
     })
+
+    await Booking.updateOne(
+      { _id: bookingId },
+      { stripeSessionId: session.id }
+    )
 
     res.json({
       url: session.url
     })
 
-  } catch (error) {
+  } catch (err) {
 
-    console.log("Stripe checkout error:", error)
+    console.error("Stripe checkout error:", err)
 
     res.status(500).json({
       error: "Could not create checkout session"
@@ -91,12 +91,9 @@ router.post("/create-checkout", async (req, res) => {
 
 /*
 STRIPE WEBHOOK
-Handles PayNow payment confirmation
 */
 
-router.post("/webhook/stripe", async (req, res) => {
-
-  const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY)
+router.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
 
   const sig = req.headers["stripe-signature"]
 
@@ -112,64 +109,74 @@ router.post("/webhook/stripe", async (req, res) => {
 
   } catch (err) {
 
-    console.log("Webhook signature verification failed")
+    console.log("Webhook signature error:", err.message)
 
     return res.status(400).send(`Webhook Error: ${err.message}`)
 
   }
 
 
-  try {
 
-    if (event.type === "checkout.session.completed") {
+  if (event.type === "checkout.session.completed") {
 
-      const session = event.data.object
-      const bookingId = session.metadata.bookingId
+    const session = event.data.object
 
-      const booking = await Booking.findById(bookingId)
+    const bookingId = session.metadata.bookingId
 
-      if (!booking) return res.json({ received: true })
+    const booking = await Booking.findById(bookingId)
 
+    if (!booking) {
+      return res.json({ received: true })
+    }
 
-      // prevent duplicate webhook execution
-      if (booking.paymentStatus === "paid") {
+    /*
+    If booking expired → refund automatically
+    */
 
-        console.log("Webhook already processed")
+    if (booking.expiresAt < new Date()) {
 
-        return res.json({ received: true })
+      console.log("Payment received after expiry → refunding")
+
+      try {
+
+        await stripe.refunds.create({
+          payment_intent: session.payment_intent
+        })
+
+      } catch (err) {
+
+        console.log("Refund error:", err)
 
       }
 
+      await Booking.updateOne(
+        { _id: bookingId },
+        { status: "expired" }
+      )
 
-      // prevent confirming expired bookings
-      if (booking.status !== "pending_payment") {
-
-        console.log("Late payment received for expired booking")
-
-        return res.json({ received: true })
-
-      }
-
-
-      booking.status = "confirmed"
-      booking.paymentStatus = "paid"
-      booking.stripeSessionId = session.id
-
-      await booking.save()
-
-      console.log("Booking confirmed:", booking._id)
+      return res.json({ received: true })
 
     }
 
-    res.json({ received: true })
 
-  } catch (error) {
 
-    console.log("Webhook processing error:", error)
+    /*
+    VALID PAYMENT
+    */
 
-    res.status(500).send("Webhook processing error")
+    await Booking.updateOne(
+      { _id: bookingId },
+      {
+        status: "confirmed",
+        paymentStatus: "paid"
+      }
+    )
+
+    console.log("Booking confirmed:", bookingId)
 
   }
+
+  res.json({ received: true })
 
 })
 
