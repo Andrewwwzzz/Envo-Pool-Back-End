@@ -2,8 +2,11 @@ const express = require("express")
 const router = express.Router()
 
 const Booking = require("../models/Booking")
-const Table = require("../models/table")
+const Table = require("../models/table") // keep lowercase if your file is table.js
 
+/*
+CREATE BOOKING
+*/
 router.post("/create", async (req, res) => {
 
   try {
@@ -12,14 +15,7 @@ router.post("/create", async (req, res) => {
 
     console.log("BOOKING REQUEST:", req.body)
 
-
-
-    /*
-    Validate input
-    */
     if (!userId | !tableId | !sessionId) {
-
-      console.log("Missing fields")
 
       return res.status(400).json({
         error: "Missing required fields"
@@ -27,18 +23,14 @@ router.post("/create", async (req, res) => {
 
     }
 
-
-
     /*
-    Find table
+    IMPORTANT: your Mongo field is hardware_id
     */
-    console.log("Looking for table:", tableId)
-
-    const table = await Table.findOne({ hardwareId: tableId })
+    const table = await Table.findOne({ hardware_id: tableId })
 
     if (!table) {
 
-      console.log("Table not found")
+      console.log("Table not found for hardware_id:", tableId)
 
       return res.status(404).json({
         error: "Table not found"
@@ -46,15 +38,9 @@ router.post("/create", async (req, res) => {
 
     }
 
-    console.log("Table found:", table._id)
-
-
-
     /*
-    Check existing booking
+    Check if session already booked
     */
-    console.log("Checking existing booking")
-
     const existing = await Booking.findOne({
 
       tableId: table._id,
@@ -63,11 +49,7 @@ router.post("/create", async (req, res) => {
 
     })
 
-
-
     if (existing) {
-
-      console.log("Booking already exists")
 
       return res.json({
         message: "Booking already exists",
@@ -76,11 +58,6 @@ router.post("/create", async (req, res) => {
 
     }
 
-
-
-    /*
-    Create booking
-    */
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000)
 
     const booking = new Booking({
@@ -92,20 +69,13 @@ router.post("/create", async (req, res) => {
       status: "pending_payment",
       paymentStatus: "unpaid",
       paymentLock: false,
-
       expiresAt
 
     })
 
-
-
-    console.log("Saving booking...")
-
     await booking.save()
 
     console.log("Booking created:", booking._id)
-
-
 
     return res.json({
 
@@ -113,8 +83,6 @@ router.post("/create", async (req, res) => {
       bookingId: booking._id
 
     })
-
-
 
   } catch (error) {
 
