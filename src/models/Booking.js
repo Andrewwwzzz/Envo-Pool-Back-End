@@ -29,6 +29,11 @@ const BookingSchema = new mongoose.Schema({
     default: "unpaid"
   },
 
+  paymentLock: {
+    type: Boolean,
+    default: false
+  },
+
   stripeSessionId: String,
 
   expiresAt: Date
@@ -36,10 +41,6 @@ const BookingSchema = new mongoose.Schema({
 }, { timestamps: true })
 
 
-
-/*
-Lock booking by table + session
-*/
 BookingSchema.index(
   { tableId: 1, sessionId: 1 },
   { unique: true }

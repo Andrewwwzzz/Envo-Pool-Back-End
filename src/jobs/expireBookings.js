@@ -1,21 +1,34 @@
 const cron = require("node-cron")
 const Booking = require("../models/Booking")
 
-cron.schedule("*/15 * * * * *", async () => {
+cron.schedule("* * * * *", async () => {
 
   try {
 
-    const result = await Booking.deleteMany({
-      status: "pending_payment",
-      expiresAt: { $lt: new Date() }
-    })
+    const result = await Booking.updateMany(
 
-    if (result.deletedCount > 0) {
-      console.log("Expired bookings deleted:", result.deletedCount)
+      {
+        status: "pending_payment",
+        expiresAt: { $lt: new Date() }
+      },
+
+      {
+        status: "expired",
+        paymentLock: false
+      }
+
+    )
+
+    if (result.modifiedCount > 0) {
+
+      console.log("Expired bookings:", result.modifiedCount)
+
     }
 
-  } catch (err) {
-    console.log("Expire booking error:", err)
+  } catch (error) {
+
+    console.log("Expire booking error:", error)
+
   }
 
 })
