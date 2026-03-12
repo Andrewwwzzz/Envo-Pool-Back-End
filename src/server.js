@@ -4,33 +4,30 @@ const express = require("express")
 const mongoose = require("mongoose")
 const cors = require("cors")
 
+const bookingRoutes = require("./routes/booking.routes")
+const paymentRoutes = require("./routes/payment.routes")
+
 const app = express()
 
+
+
 /*
-Stripe webhook MUST receive raw body
+Stripe webhook must receive raw body
 */
 app.use("/api/payments/webhook", express.raw({ type: "application/json" }))
 
-/*
-Normal JSON parsing
-*/
 app.use(express.json())
-
 app.use(cors())
+
+
 
 /*
 Routes
 */
-const bookingRoutes = require("./routes/booking.routes")
-const paymentRoutes = require("./routes/payment.routes")
-
 app.use("/api/bookings", bookingRoutes)
 app.use("/api/payments", paymentRoutes)
 
-/*
-Background worker
-*/
-require("./jobs/expireBookings")
+
 
 /*
 Health check
@@ -39,19 +36,40 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok" })
 })
 
+
+
 /*
-MongoDB
+Start server ONLY after MongoDB connects
 */
-mongoose.connect(process.env.MONGODB_URI)
-.then(() => {
-  console.log("MongoDB connected")
-})
-.catch(err => {
-  console.log("MongoDB error:", err)
-})
+async function startServer() {
 
-const PORT = process.env.PORT || 3000
+  try {
 
-app.listen(PORT, () => {
-  console.log("Server running on port", PORT)
-})
+    await mongoose.connect(process.env.MONGODB_URI, {
+      serverSelectionTimeoutMS: 5000
+    })
+
+    console.log("MongoDB connected")
+
+    /*
+    Start background workers AFTER DB connection
+    */
+    require("./jobs/expireBookings")
+
+    const PORT = process.env.PORT || 3000
+
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`)
+    })
+
+  } catch (error) {
+
+    console.error("MongoDB connection failed:", error)
+
+    process.exit(1)
+
+  }
+
+}
+
+startServer()
