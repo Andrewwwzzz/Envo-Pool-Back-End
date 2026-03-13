@@ -26,11 +26,11 @@ const DPOP_PRIVATE_KEY = process.env.DPOP_PRIVATE_KEY
    ENDPOINTS
 ================================ */
 
-const AUTH_BASE = "https://stg-id.singpass.gov.sg";
+const AUTH_BASE = "https://stg-id.singpass.gov.sg/fapi";
 
 const PAR_ENDPOINT = `${AUTH_BASE}/par`;
 const TOKEN_ENDPOINT = `${AUTH_BASE}/token`;
-const AUTH_ENDPOINT = `${AUTH_BASE}/auth`;
+const AUTH_ENDPOINT = "https://stg-id.singpass.gov.sg/auth";
 
 /* ===============================
    HELPERS
@@ -153,8 +153,7 @@ exports.redirectToSingpass = async (req, res) => {
         client_assertion: clientAssertion,
 
         authentication_context_class_reference:
-  "urn:spe:authentication:singpass:qr"
-
+          "urn:spe:authentication:singpass:qr"
       }),
       {
         headers: {
