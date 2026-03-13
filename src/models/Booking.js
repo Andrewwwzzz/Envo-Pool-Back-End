@@ -20,7 +20,7 @@ const BookingSchema = new mongoose.Schema({
 
   status: {
     type: String,
-    enum: ["pending_payment", "confirmed", "cancelled"],
+    enum: ["pending_payment", "confirmed", "expired", "cancelled"],
     default: "pending_payment"
   },
 
@@ -37,10 +37,7 @@ const BookingSchema = new mongoose.Schema({
 
   stripeSessionId: String,
 
-  expiresAt: {
-    type: Date,
-    required: true
-  }
+  expiresAt: Date
 
 }, { timestamps: true })
 
@@ -57,16 +54,6 @@ BookingSchema.index(
       status: { $in: ["pending_payment", "confirmed"] }
     }
   }
-)
-
-
-/*
-TTL Index
-Deletes booking automatically after expiresAt
-*/
-BookingSchema.index(
-  { expiresAt: 1 },
-  { expireAfterSeconds: 0 }
 )
 
 module.exports = mongoose.model("Booking", BookingSchema)

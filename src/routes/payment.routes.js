@@ -5,6 +5,7 @@ const Stripe = require("stripe")
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY)
 
 const Booking = require("../models/Booking")
+const Table = require("../models/table")
 
 
 
@@ -15,7 +16,7 @@ router.post("/create-checkout", async (req, res) => {
 
   try {
 
-    const { bookingId, amount } = req.body
+    const { bookingId } = req.body
 
     const booking = await Booking.findOneAndUpdate(
       {
@@ -31,15 +32,37 @@ router.post("/create-checkout", async (req, res) => {
 
     if (!booking) {
       return res.status(409).json({
-        error: "Another user is already paying"
+        error: "This session has just been reserved by another user."
       })
     }
 
     if (booking.expiresAt < new Date()) {
-      return res.status(400).json({
-        error: "Booking expired"
+
+      await Booking.updateOne(
+        { _id: bookingId },
+        { paymentLock: false }
+      )
+
+      return res.status(409).json({
+        error: "This session has just been reserved by another user."
       })
     }
+
+    const table = await Table.findById(booking.tableId)
+
+    if (!table) {
+
+      await Booking.updateOne(
+        { _id: bookingId },
+        { paymentLock: false }
+      )
+
+      return res.status(404).json({
+        error: "Table not found"
+      })
+    }
+
+    const amount = table.basePrice * 100
 
     const session = await stripe.checkout.sessions.create({
 
@@ -52,7 +75,7 @@ router.post("/create-checkout", async (req, res) => {
           price_data: {
             currency: "sgd",
             product_data: {
-              name: "Pool Table Reservation"
+              name: `Pool Table ${table.tableNumber} Reservation`
             },
             unit_amount: amount
           },
@@ -72,6 +95,11 @@ router.post("/create-checkout", async (req, res) => {
 
     })
 
+    await Booking.updateOne(
+      { _id: bookingId },
+      { stripeSessionId: session.id }
+    )
+
     res.json({
       url: session.url
     })
@@ -79,6 +107,13 @@ router.post("/create-checkout", async (req, res) => {
   } catch (err) {
 
     console.log("Stripe checkout error:", err)
+
+    if (req.body.bookingId) {
+      await Booking.updateOne(
+        { _id: req.body.bookingId },
+        { paymentLock: false }
+      )
+    }
 
     res.status(500).json({
       error: "Could not create checkout session"
@@ -127,11 +162,19 @@ router.post("/webhook", async (req, res) => {
         return res.json({ received: true })
       }
 
-      if (booking.status !== "pending_payment") {
+      /*
+      Prevent duplicate webhook processing
+      */
+      if (booking.paymentStatus === "paid") {
         return res.json({ received: true })
       }
 
+      /*
+      Late payment protection
+      */
       if (booking.expiresAt < new Date()) {
+
+        console.log("Late payment detected, refunding:", bookingId)
 
         await stripe.refunds.create({
           payment_intent: session.payment_intent
@@ -139,7 +182,10 @@ router.post("/webhook", async (req, res) => {
 
         await Booking.updateOne(
           { _id: bookingId },
-          { status: "expired", paymentLock: false }
+          {
+            status: "expired",
+            paymentLock: false
+          }
         )
 
         return res.json({ received: true })

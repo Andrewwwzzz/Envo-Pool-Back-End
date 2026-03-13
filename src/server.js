@@ -54,7 +54,7 @@ async function startServer() {
     /*
     Start background workers AFTER DB connection
     */
-    
+    require("./jobs/expireBookings")
 
     const PORT = process.env.PORT || 3000
 
