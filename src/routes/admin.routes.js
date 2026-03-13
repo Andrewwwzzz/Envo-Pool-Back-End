@@ -1,16 +1,10 @@
-const express = require("express");
-const router = express.Router();
+const express = require("express")
+const router = express.Router()
 
-const authMiddleware = require("../src/middleware/auth.middleware");
-const roleMiddleware = require("../src/middleware/role.middleware");
+const authController = require("../controllers/auth.controller")
 
-router.get(
-  "/dashboard",
-  authMiddleware,
-  roleMiddleware("admin"),
-  (req, res) => {
-    res.json({ message: "Admin dashboard access granted" });
-  }
-);
+router.get("/singpass", authController.redirectToSingpass)
 
-module.exports = router;
+router.get("/callback", authController.singpassCallback)
+
+module.exports = router
