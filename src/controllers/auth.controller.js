@@ -161,7 +161,11 @@ exports.redirectToSingpass = async (req, res) => {
     const requestUri = parResponse.data.request_uri;
 
     const authUrl =
-  `${AUTH_ENDPOINT}?response_type=code&response_mode=query&client_id=${clientId}&request_uri=${requestUri}`;
+  `${AUTH_ENDPOINT}` +
+  `?response_type=code` +
+  `&client_id=${clientId}` +
+  `&scope=openid%20name%20dob%20user.identity` +
+  `&request_uri=${requestUri}`;
 
 
     console.log("AUTH URL:", authUrl);
