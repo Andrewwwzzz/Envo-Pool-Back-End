@@ -110,8 +110,7 @@ router.post("/create-checkout", async (req, res) => {
 
 /*
 VERIFY STRIPE SESSION
-This prevents the race condition where Stripe redirects
-before the webhook finishes processing.
+Used by frontend after redirect
 */
 router.get("/verify-session", async (req, res) => {
 
@@ -128,40 +127,20 @@ router.get("/verify-session", async (req, res) => {
     const session = await stripe.checkout.sessions.retrieve(session_id)
 
     const bookingId = session.metadata.bookingId
-
-    let booking = await Booking.findById(bookingId)
+    const booking = await Booking.findById(bookingId)
 
     if (!booking) {
-      return res.json({
-        status: "not_found"
-      })
+      return res.json({ status: "not_found" })
     }
 
-    /*
-    Wait up to 3 seconds for webhook to finish
-    */
-    const start = Date.now()
-
-    while (Date.now() - start < 3000) {
-
-      booking = await Booking.findById(bookingId)
-
-      if (!booking) break
-
-      if (booking.paymentStatus === "paid") {
-        return res.json({ status: "confirmed" })
-      }
-
-      if (booking.status === "expired") {
-        return res.json({ status: "expired" })
-      }
-
-      await new Promise(resolve => setTimeout(resolve, 500))
+    if (booking.status === "expired") {
+      return res.json({ status: "expired" })
     }
 
-    /*
-    If webhook still processing
-    */
+    if (booking.paymentStatus === "paid") {
+      return res.json({ status: "confirmed" })
+    }
+
     if (session.payment_status === "paid") {
 
       if (booking.expiresAt < new Date()) {
@@ -171,9 +150,7 @@ router.get("/verify-session", async (req, res) => {
       return res.json({ status: "processing" })
     }
 
-    return res.json({
-      status: booking.status
-    })
+    return res.json({ status: booking.status })
 
   } catch (error) {
 
@@ -226,17 +203,16 @@ router.post("/webhook", async (req, res) => {
         return res.json({ received: true })
       }
 
-      /*
-      Prevent duplicate webhook processing
-      */
       if (booking.paymentStatus === "paid") {
         return res.json({ received: true })
       }
 
       /*
-      Late payment protection
+      Use Stripe payment timestamp
       */
-      if (booking.expiresAt < new Date()) {
+      const paymentTime = new Date(session.created * 1000)
+
+      if (paymentTime > booking.expiresAt) {
 
         console.log("Late payment detected, refunding:", bookingId)
 
