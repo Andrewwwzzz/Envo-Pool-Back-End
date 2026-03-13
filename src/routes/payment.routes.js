@@ -5,7 +5,6 @@ const Stripe = require("stripe")
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY)
 
 const Booking = require("../models/Booking")
-const Table = require("../models/table")
 
 
 
@@ -16,7 +15,7 @@ router.post("/create-checkout", async (req, res) => {
 
   try {
 
-    const { bookingId } = req.body
+    const { bookingId, amount } = req.body
 
     const booking = await Booking.findOneAndUpdate(
       {
@@ -48,22 +47,6 @@ router.post("/create-checkout", async (req, res) => {
       })
     }
 
-    const table = await Table.findById(booking.tableId)
-
-    if (!table) {
-
-      await Booking.updateOne(
-        { _id: bookingId },
-        { paymentLock: false }
-      )
-
-      return res.status(404).json({
-        error: "Table not found"
-      })
-    }
-
-    const amount = table.basePrice * 100
-
     const session = await stripe.checkout.sessions.create({
 
       payment_method_types: ["paynow"],
@@ -75,7 +58,7 @@ router.post("/create-checkout", async (req, res) => {
           price_data: {
             currency: "sgd",
             product_data: {
-              name: `Pool Table ${table.tableNumber} Reservation`
+              name: "Pool Table Reservation"
             },
             unit_amount: amount
           },
