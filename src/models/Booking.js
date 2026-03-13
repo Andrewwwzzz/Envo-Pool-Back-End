@@ -20,7 +20,7 @@ const BookingSchema = new mongoose.Schema({
 
   status: {
     type: String,
-    enum: ["pending_payment", "confirmed", "expired", "cancelled"],
+    enum: ["pending_payment", "confirmed", "cancelled"],
     default: "pending_payment"
   },
 
@@ -37,14 +37,17 @@ const BookingSchema = new mongoose.Schema({
 
   stripeSessionId: String,
 
-  expiresAt: Date
+  expiresAt: {
+    type: Date,
+    required: true
+  }
 
 }, { timestamps: true })
 
 
 /*
-Only enforce uniqueness for active bookings
-Expired bookings will not block the table
+Unique booking per table per session
+Only applies to active bookings
 */
 BookingSchema.index(
   { tableId: 1, sessionId: 1 },
@@ -54,6 +57,16 @@ BookingSchema.index(
       status: { $in: ["pending_payment", "confirmed"] }
     }
   }
+)
+
+
+/*
+TTL Index
+Deletes booking automatically after expiresAt
+*/
+BookingSchema.index(
+  { expiresAt: 1 },
+  { expireAfterSeconds: 0 }
 )
 
 module.exports = mongoose.model("Booking", BookingSchema)
