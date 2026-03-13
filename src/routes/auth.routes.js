@@ -1,9 +1,12 @@
 import express from "express";
-import { singpassLogin } from "../controllers/auth.controller.js";
+import authController from "../controllers/auth.controller.js";
 
 const router = express.Router();
 
-// Start Singpass login
-router.get("/singpass", singpassLogin);
+// start singpass login
+router.get("/singpass", authController.redirectToSingpass);
+
+// callback
+router.get("/callback", authController.singpassCallback);
 
 export default router;
