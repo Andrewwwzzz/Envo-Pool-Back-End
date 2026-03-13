@@ -70,8 +70,11 @@ router.post("/create-checkout", async (req, res) => {
         bookingId: bookingId
       },
 
+      /*
+      Redirect to verification page instead of success page
+      */
       success_url:
-        "https://anytimepoolsg.com/booking-success?session_id={CHECKOUT_SESSION_ID}",
+        "https://anytimepoolsg.com/payment-verification?session_id={CHECKOUT_SESSION_ID}",
 
       cancel_url:
         "https://anytimepoolsg.com/booking-cancelled"
@@ -110,7 +113,7 @@ router.post("/create-checkout", async (req, res) => {
 
 /*
 VERIFY STRIPE SESSION
-Used by frontend after redirect
+Used by verification page
 */
 router.get("/verify-session", async (req, res) => {
 
@@ -208,11 +211,9 @@ router.post("/webhook", async (req, res) => {
       }
 
       /*
-      Use Stripe payment timestamp
+      Late payment protection
       */
-      const paymentTime = new Date(session.created * 1000)
-
-      if (paymentTime > booking.expiresAt) {
+      if (booking.expiresAt < new Date()) {
 
         console.log("Late payment detected, refunding:", bookingId)
 
