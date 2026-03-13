@@ -1,20 +1,25 @@
-const express = require("express");
-const router = express.Router();
+const express = require("express")
+const router = express.Router()
 
-router.get("/.well-known/jwks.json", (req, res) => {
+/*
+JWKS endpoint required by Singpass
+*/
+router.get("/well-known/jwks.json", (req, res) => {
+
+  const jwk = {
+    kty: "EC",
+    crv: "P-256",
+    use: "sig",
+    alg: "ES256",
+    kid: process.env.SIGNING_KID,
+    x: process.env.SIGNING_PUBLIC_X,
+    y: process.env.SIGNING_PUBLIC_Y
+  }
+
   res.json({
-    keys: [
-      {
-        kty: "EC",
-        crv: "P-256",
-        use: "sig",
-        alg: "ES256",
-        kid: process.env.SIGNING_KID,
-        x: process.env.SIGNING_PUBLIC_X,
-        y: process.env.SIGNING_PUBLIC_Y
-      }
-    ]
-  });
-});
+    keys: [jwk]
+  })
 
-module.exports = router;
+})
+
+module.exports = router
