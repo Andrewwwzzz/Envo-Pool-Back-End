@@ -110,7 +110,8 @@ router.post("/create-checkout", async (req, res) => {
 
 /*
 VERIFY STRIPE SESSION
-Used by frontend after redirect
+This prevents the race condition where Stripe redirects
+before the webhook finishes processing.
 */
 router.get("/verify-session", async (req, res) => {
 
@@ -128,47 +129,46 @@ router.get("/verify-session", async (req, res) => {
 
     const bookingId = session.metadata.bookingId
 
-    const booking = await Booking.findById(bookingId)
+    let booking = await Booking.findById(bookingId)
 
     if (!booking) {
-
       return res.json({
         status: "not_found"
       })
-
     }
 
     /*
-    If booking expired
+    Wait up to 3 seconds for webhook to finish
     */
-    if (booking.expiresAt < new Date()) {
+    const start = Date.now()
 
-      return res.json({
-        status: "expired"
-      })
+    while (Date.now() - start < 3000) {
 
+      booking = await Booking.findById(bookingId)
+
+      if (!booking) break
+
+      if (booking.paymentStatus === "paid") {
+        return res.json({ status: "confirmed" })
+      }
+
+      if (booking.status === "expired") {
+        return res.json({ status: "expired" })
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 500))
     }
 
     /*
-    If webhook already confirmed booking
-    */
-    if (booking.paymentStatus === "paid") {
-
-      return res.json({
-        status: "confirmed"
-      })
-
-    }
-
-    /*
-    Payment completed but webhook still processing
+    If webhook still processing
     */
     if (session.payment_status === "paid") {
 
-      return res.json({
-        status: "processing"
-      })
+      if (booking.expiresAt < new Date()) {
+        return res.json({ status: "expired" })
+      }
 
+      return res.json({ status: "processing" })
     }
 
     return res.json({
