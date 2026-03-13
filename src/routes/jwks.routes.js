@@ -4,7 +4,7 @@ const router = express.Router()
 /*
 JWKS endpoint required by Singpass
 */
-router.get("/well-known/jwks.json", (req, res) => {
+router.get("/.well-known/jwks.json", (req, res) => {
 
   const jwk = {
     kty: "EC",
