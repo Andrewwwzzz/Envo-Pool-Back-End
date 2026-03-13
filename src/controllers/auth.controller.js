@@ -10,7 +10,7 @@ const jwt = require("jsonwebtoken");
 const clientId = process.env.SINGPASS_CLIENT_ID;
 const redirectUri = process.env.SINGPASS_REDIRECT_URI;
 
-const ISSUER = "https://stg-id.singpass.gov.sg/fapi";
+const ISSUER = "https://stg-id.singpass.gov.sg";
 
 const SIGNING_PRIVATE_KEY = process.env.SIGNING_PRIVATE_KEY
   ? process.env.SIGNING_PRIVATE_KEY.replace(/\\n/g, "\n")
