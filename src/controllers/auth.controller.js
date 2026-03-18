@@ -1,54 +1,73 @@
 const axios = require("axios");
+const qs = require("qs");
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
-const qs = require("qs");
 
-const AUTH_ENDPOINT = process.env.SINGPASS_AUTHORIZE_URL;
-const PAR_ENDPOINT = process.env.SINGPASS_PAR_URL;
-const TOKEN_ENDPOINT = process.env.SINGPASS_TOKEN_URL;
+/* ===============================
+   ENV
+================================ */
 
-const CLIENT_ID = process.env.SINGPASS_CLIENT_ID;
-const REDIRECT_URI = process.env.SINGPASS_REDIRECT_URI;
+const clientId = process.env.SINGPASS_CLIENT_ID;
+const redirectUri = process.env.SINGPASS_REDIRECT_URI;
 
-const SIGNING_PRIVATE_KEY = process.env.SIGNING_PRIVATE_KEY.replace(/\\n/g, "\n");
+const ISSUER = "https://stg-id.singpass.gov.sg/fapi";
+
+const SIGNING_PRIVATE_KEY = process.env.SIGNING_PRIVATE_KEY
+  ? process.env.SIGNING_PRIVATE_KEY.replace(/\\n/g, "\n")
+  : null;
+
 const SIGNING_KID = process.env.SIGNING_KID;
 
-const DPOP_PRIVATE_KEY = process.env.DPOP_PRIVATE_KEY.replace(/\\n/g, "\n");
-const DPOP_PUBLIC_X = process.env.DPOP_PUBLIC_X;
-const DPOP_PUBLIC_Y = process.env.DPOP_PUBLIC_Y;
+const DPOP_PRIVATE_KEY = process.env.DPOP_PRIVATE_KEY
+  ? process.env.DPOP_PRIVATE_KEY.replace(/\\n/g, "\n")
+  : null;
 
-/* =========================
+/* ===============================
+   ENDPOINTS (FIXED)
+================================ */
+
+const AUTH_BASE = "https://stg-id.singpass.gov.sg/fapi";
+
+const PAR_ENDPOINT = `${AUTH_BASE}/par`;
+const TOKEN_ENDPOINT = `${AUTH_BASE}/token`;
+
+// ✅ FIXED (was /auth before)
+const AUTH_ENDPOINT = "https://stg-id.singpass.gov.sg/authorize";
+
+/* ===============================
    HELPERS
-========================= */
+================================ */
 
-function base64url(input) {
-  return Buffer.from(input)
-    .toString("base64")
-    .replace(/=/g, "")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_");
-}
-
-function generateCodeVerifier() {
-  return base64url(crypto.randomBytes(32));
+function generateRandomString() {
+  return crypto.randomBytes(32).toString("hex");
 }
 
 function generateCodeChallenge(verifier) {
-  return base64url(crypto.createHash("sha256").update(verifier).digest());
+  return crypto
+    .createHash("sha256")
+    .update(verifier)
+    .digest("base64url");
 }
 
-/* =========================
+/* ===============================
    CLIENT ASSERTION
-========================= */
+================================ */
 
 function generateClientAssertion() {
+  if (!SIGNING_PRIVATE_KEY) {
+    throw new Error("SIGNING_PRIVATE_KEY not configured");
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+
   return jwt.sign(
     {
-      iss: CLIENT_ID,
-      sub: CLIENT_ID,
-      aud: "https://stg-id.singpass.gov.sg/fapi",
+      iss: clientId,
+      sub: clientId,
+      aud: ISSUER,
       jti: crypto.randomUUID(),
-      exp: Math.floor(Date.now() / 1000) + 300
+      iat: now,
+      exp: now + 120
     },
     SIGNING_PRIVATE_KEY,
     {
@@ -58,45 +77,53 @@ function generateClientAssertion() {
   );
 }
 
-/* =========================
-   🔥 FIXED DPoP (IMPORTANT)
-========================= */
+/* ===============================
+   DPoP PROOF
+================================ */
 
-function generateDPoP(url, method) {
+function generateDpopProof(url, method) {
+  if (!DPOP_PRIVATE_KEY) {
+    throw new Error("DPOP_PRIVATE_KEY not configured");
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+
+  const publicJwk = {
+    kty: "EC",
+    crv: "P-256",
+    x: process.env.DPOP_PUBLIC_X,
+    y: process.env.DPOP_PUBLIC_Y
+  };
+
   return jwt.sign(
     {
-      htu: url,
       htm: method,
+      htu: url,
       jti: crypto.randomUUID(),
-      iat: Math.floor(Date.now() / 1000)
+      iat: now,
+      exp: now + 120
     },
     DPOP_PRIVATE_KEY,
     {
       algorithm: "ES256",
       header: {
         typ: "dpop+jwt",
-        alg: "ES256",
-        jwk: {
-          kty: "EC",
-          crv: "P-256",
-          x: DPOP_PUBLIC_X,
-          y: DPOP_PUBLIC_Y
-        }
+        jwk: publicJwk
       }
     }
   );
 }
 
-/* =========================
-   LOGIN (PAR)
-========================= */
+/* ===============================
+   STEP 1: PAR (FIXED)
+================================ */
 
 exports.redirectToSingpass = async (req, res) => {
   try {
-    const state = crypto.randomBytes(16).toString("hex");
-    const nonce = crypto.randomBytes(16).toString("hex");
+    const state = generateRandomString();
+    const nonce = generateRandomString();
 
-    const codeVerifier = generateCodeVerifier();
+    const codeVerifier = generateRandomString();
     const codeChallenge = generateCodeChallenge(codeVerifier);
 
     req.session.state = state;
@@ -104,90 +131,104 @@ exports.redirectToSingpass = async (req, res) => {
     req.session.codeVerifier = codeVerifier;
 
     const clientAssertion = generateClientAssertion();
+    const dpopProof = generateDpopProof(PAR_ENDPOINT, "POST");
 
-    const payload = qs.stringify({
-      response_type: "code",
-      client_id: CLIENT_ID,
-      redirect_uri: REDIRECT_URI,
-      scope: "openid name dob",
-      state,
-      nonce,
-      code_challenge: codeChallenge,
-      code_challenge_method: "S256",
-      client_assertion_type:
-        "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
-      client_assertion: clientAssertion,
-      authentication_context_class_reference:
-        "urn:spe:authentication:singpass:qr"
-    });
+    const parResponse = await axios.post(
+      PAR_ENDPOINT,
+      qs.stringify({
+        response_type: "code",
+        client_id: clientId,
+        redirect_uri: redirectUri,
 
-    const dpop = generateDPoP(PAR_ENDPOINT, "POST");
+        // ✅ FIXED (removed user.identity)
+        scope: "openid name dob",
 
-    console.log("DPoP HEADER:", jwt.decode(dpop, { complete: true }));
-    console.log("CLIENT ASSERTION:", jwt.decode(clientAssertion));
+        state,
+        nonce,
+        code_challenge: codeChallenge,
+        code_challenge_method: "S256",
 
-    const parRes = await axios.post(PAR_ENDPOINT, payload, {
-  headers: {
-    "Content-Type": "application/x-www-form-urlencoded",
-    DPoP: dpop,
-    Authorization: `Basic ${Buffer.from(`${CLIENT_ID}:`).toString("base64")}`
-  }
-});
+        client_assertion_type:
+          "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
 
-    const authUrl = `${AUTH_ENDPOINT}?client_id=${CLIENT_ID}&request_uri=${encodeURIComponent(
-      parRes.data.request_uri
-    )}`;
+        client_assertion: clientAssertion,
 
-    res.redirect(authUrl);
+        // ✅ FIXED (correct param)
+        authentication_context_type: "singpass"
+      }),
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          DPoP: dpopProof
+        }
+      }
+    );
+
+    const requestUri = parResponse.data.request_uri;
+
+    const authUrl =
+      `${AUTH_ENDPOINT}?client_id=${clientId}&request_uri=${requestUri}`;
+
+    return res.redirect(authUrl);
 
   } catch (err) {
-    console.error("PAR ERROR FULL:", err.response?.data || err);
-    res.status(500).json({ error: "Singpass login failed" });
+    console.error("PAR Error FULL:", err.response?.data || err.message);
+    return res.status(500).send("Singpass PAR failed");
   }
 };
 
-/* =========================
-   CALLBACK
-========================= */
+/* ===============================
+   STEP 2: TOKEN EXCHANGE
+================================ */
 
 exports.singpassCallback = async (req, res) => {
   try {
     const { code, state } = req.query;
 
     if (state !== req.session.state) {
-      return res.status(400).json({ error: "Invalid state" });
+      return res.status(400).send("Invalid state");
     }
 
     const clientAssertion = generateClientAssertion();
+    const dpopProof = generateDpopProof(TOKEN_ENDPOINT, "POST");
 
-    const payload = qs.stringify({
-      grant_type: "authorization_code",
-      code,
-      redirect_uri: REDIRECT_URI,
-      client_assertion_type:
-        "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
-      client_assertion: clientAssertion,
-      code_verifier: req.session.codeVerifier
-    });
+    const tokenResponse = await axios.post(
+      TOKEN_ENDPOINT,
+      qs.stringify({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: redirectUri,
+        client_id: clientId,
+        code_verifier: req.session.codeVerifier,
 
-    const dpop = generateDPoP(TOKEN_ENDPOINT, "POST");
+        client_assertion_type:
+          "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
 
-    const tokenRes = await axios.post(TOKEN_ENDPOINT, payload, {
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        DPoP: dpop
+        client_assertion: clientAssertion
+      }),
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          DPoP: dpopProof
+        }
       }
-    });
+    );
 
-    const decoded = jwt.decode(tokenRes.data.id_token);
+    const { id_token } = tokenResponse.data;
 
-    res.json({
-      message: "Login success",
-      singpassId: decoded.sub
+    const decoded = jwt.decode(id_token);
+
+    if (!decoded || decoded.nonce !== req.session.nonce) {
+      return res.status(400).send("Invalid nonce");
+    }
+
+    return res.json({
+      message: "Singpass login successful",
+      user: decoded
     });
 
   } catch (err) {
-    console.error("CALLBACK ERROR:", err.response?.data || err);
-    res.status(500).json({ error: "Callback failed" });
+    console.error("Token Exchange Error:", err.response?.data || err.message);
+    return res.status(500).send("Token exchange failed");
   }
 };
