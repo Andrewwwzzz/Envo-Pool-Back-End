@@ -5,9 +5,9 @@
       "crv": "P-256",
       "use": "sig",
       "alg": "ES256",
-      "kid": "4b20d1fbe3f2222c358e61cfb5ea6cc4",
-      "x": "YmCWAM_6mPuLGV7mMxumXv0xZmNkk1QLmOFsUUC_yOk",
-      "y": "cBf6MTuEA7k85-CrSiFhN5jwAc21oOS10gok7-OXTCI"
+      "kid": "singpass-key-ec-1",
+      "x": "QO9aPWQo0JE+ZO5FyvGIWKfK91/Kdlpe7PHfJFvHF+8",
+      "y": "71fP5HpjdjuXazeZiTafe4rvHeTyzwbmTaD3FiT2PtY"
     }
   ]
 }
