@@ -127,11 +127,12 @@ exports.redirectToSingpass = async (req, res) => {
     console.log("CLIENT ASSERTION:", jwt.decode(clientAssertion));
 
     const parRes = await axios.post(PAR_ENDPOINT, payload, {
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        DPoP: dpop
-      }
-    });
+  headers: {
+    "Content-Type": "application/x-www-form-urlencoded",
+    DPoP: dpop,
+    Authorization: `Basic ${Buffer.from(`${CLIENT_ID}:`).toString("base64")}`
+  }
+});
 
     const authUrl = `${AUTH_ENDPOINT}?client_id=${CLIENT_ID}&request_uri=${encodeURIComponent(
       parRes.data.request_uri

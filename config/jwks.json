@@ -6,8 +6,8 @@
       "use": "sig",
       "alg": "ES256",
       "kid": "singpass-key-ec-1",
-      "x": "QO9aPWQo0JE+ZO5FyvGIWKfK91/Kdlpe7PHfJFvHF+8",
-      "y": "71fP5HpjdjuXazeZiTafe4rvHeTyzwbmTaD3FiT2PtY"
+      "x": "m6HwTRHjV-5N9jy4FCf8K3kntAN8w8aB40Ap8sSO1rE",
+      "y": "IrrOKEK2JxCc6X6YcPiEIl2stYm2x2g4BVahzpysdRU"
     }
   ]
 }
