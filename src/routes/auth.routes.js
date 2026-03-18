@@ -1,9 +1,9 @@
-import express from "express";
-import { redirectToSingpass, singpassCallback } from "../controllers/auth.controller.js";
-
+const express = require("express");
 const router = express.Router();
 
-router.get("/singpass", redirectToSingpass);
-router.get("/callback", singpassCallback);
+const authController = require("../controllers/auth.controller");
 
-export default router;
+router.get("/singpass", authController.redirectToSingpass);
+router.get("/callback", authController.singpassCallback);
+
+module.exports = router;

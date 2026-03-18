@@ -1,7 +1,7 @@
-import axios from "axios";
-import crypto from "crypto";
-import jwt from "jsonwebtoken";
-import qs from "qs";
+const axios = require("axios");
+const crypto = require("crypto");
+const jwt = require("jsonwebtoken");
+const qs = require("qs");
 
 const AUTH_ENDPOINT = process.env.SINGPASS_AUTHORIZE_URL;
 const PAR_ENDPOINT = process.env.SINGPASS_PAR_URL;
@@ -17,10 +17,7 @@ const DPOP_PRIVATE_KEY = process.env.DPOP_PRIVATE_KEY.replace(/\\n/g, "\n");
 const DPOP_PUBLIC_X = process.env.DPOP_PUBLIC_X;
 const DPOP_PUBLIC_Y = process.env.DPOP_PUBLIC_Y;
 
-/* =========================
-   HELPERS
-========================= */
-
+/* HELPERS */
 function base64url(input) {
   return Buffer.from(input)
     .toString("base64")
@@ -78,11 +75,8 @@ function generateDPoP(url, method) {
   );
 }
 
-/* =========================
-   LOGIN (PAR FLOW)
-========================= */
-
-export const redirectToSingpass = async (req, res) => {
+/* LOGIN */
+exports.redirectToSingpass = async (req, res) => {
   try {
     const state = crypto.randomBytes(16).toString("hex");
     const nonce = crypto.randomBytes(16).toString("hex");
@@ -121,10 +115,8 @@ export const redirectToSingpass = async (req, res) => {
       }
     });
 
-    const requestUri = parRes.data.request_uri;
-
     const authUrl = `${AUTH_ENDPOINT}?client_id=${CLIENT_ID}&request_uri=${encodeURIComponent(
-      requestUri
+      parRes.data.request_uri
     )}`;
 
     res.redirect(authUrl);
@@ -135,19 +127,14 @@ export const redirectToSingpass = async (req, res) => {
   }
 };
 
-/* =========================
-   CALLBACK
-========================= */
-
-export const singpassCallback = async (req, res) => {
+/* CALLBACK */
+exports.singpassCallback = async (req, res) => {
   try {
     const { code, state } = req.query;
 
     if (state !== req.session.state) {
       return res.status(400).json({ error: "Invalid state" });
     }
-
-    const codeVerifier = req.session.codeVerifier;
 
     const clientAssertion = generateClientAssertion(TOKEN_ENDPOINT);
 
@@ -158,7 +145,7 @@ export const singpassCallback = async (req, res) => {
       client_assertion_type:
         "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
       client_assertion: clientAssertion,
-      code_verifier: codeVerifier
+      code_verifier: req.session.codeVerifier
     });
 
     const dpop = generateDPoP(TOKEN_ENDPOINT, "POST");
@@ -170,12 +157,9 @@ export const singpassCallback = async (req, res) => {
       }
     });
 
-    const { id_token } = tokenRes.data;
+    const decoded = jwt.decode(tokenRes.data.id_token);
 
-    // ⚠️ TEMP (UUID only apps might not be encrypted)
-    const decoded = jwt.decode(id_token);
-
-    return res.json({
+    res.json({
       message: "Login success",
       singpassId: decoded.sub
     });
