@@ -26,17 +26,17 @@ const DPOP_PRIVATE_KEY = process.env.DPOP_PRIVATE_KEY
    ENDPOINTS
 ================================ */
 
-const AUTH_BASE = "https://stg-id.singpass.gov.sg/fapi";
+const BASE = "https://stg-id.singpass.gov.sg/fapi";
 
-const PAR_ENDPOINT = `${AUTH_BASE}/par`;
-const TOKEN_ENDPOINT = `${AUTH_BASE}/token`;
+const PAR_ENDPOINT = `${BASE}/par`;
+const TOKEN_ENDPOINT = `${BASE}/token`;
 const AUTH_ENDPOINT = "https://stg-id.singpass.gov.sg/authorize";
 
 /* ===============================
    HELPERS
 ================================ */
 
-function generateRandomString() {
+function randomString() {
   return crypto.randomBytes(32).toString("hex");
 }
 
@@ -48,12 +48,12 @@ function generateCodeChallenge(verifier) {
 }
 
 /* ===============================
-   CLIENT ASSERTION
+   CLIENT ASSERTION (ES256)
 ================================ */
 
 function generateClientAssertion() {
   if (!SIGNING_PRIVATE_KEY) {
-    throw new Error("SIGNING_PRIVATE_KEY not configured");
+    throw new Error("Missing SIGNING_PRIVATE_KEY");
   }
 
   const now = Math.floor(Date.now() / 1000);
@@ -79,19 +79,12 @@ function generateClientAssertion() {
    DPoP PROOF
 ================================ */
 
-function generateDpopProof(url, method) {
+function generateDpop(url, method) {
   if (!DPOP_PRIVATE_KEY) {
-    throw new Error("DPOP_PRIVATE_KEY not configured");
+    throw new Error("Missing DPOP_PRIVATE_KEY");
   }
 
   const now = Math.floor(Date.now() / 1000);
-
-  const publicJwk = {
-    kty: "EC",
-    crv: "P-256",
-    x: process.env.DPOP_PUBLIC_X,
-    y: process.env.DPOP_PUBLIC_Y
-  };
 
   return jwt.sign(
     {
@@ -106,22 +99,26 @@ function generateDpopProof(url, method) {
       algorithm: "ES256",
       header: {
         typ: "dpop+jwt",
-        jwk: publicJwk
+        jwk: {
+          kty: "EC",
+          crv: "P-256",
+          x: process.env.DPOP_PUBLIC_X,
+          y: process.env.DPOP_PUBLIC_Y
+        }
       }
     }
   );
 }
 
 /* ===============================
-   STEP 1: PAR (FINAL FIXED)
+   STEP 1: PAR
 ================================ */
 
 exports.redirectToSingpass = async (req, res) => {
   try {
-    const state = generateRandomString();
-    const nonce = generateRandomString();
-
-    const codeVerifier = generateRandomString();
+    const state = randomString();
+    const nonce = randomString();
+    const codeVerifier = randomString();
     const codeChallenge = generateCodeChallenge(codeVerifier);
 
     req.session.state = state;
@@ -129,9 +126,9 @@ exports.redirectToSingpass = async (req, res) => {
     req.session.codeVerifier = codeVerifier;
 
     const clientAssertion = generateClientAssertion();
-    const dpopProof = generateDpopProof(PAR_ENDPOINT, "POST");
+    const dpop = generateDpop(PAR_ENDPOINT, "POST");
 
-    const parResponse = await axios.post(
+    const response = await axios.post(
       PAR_ENDPOINT,
       qs.stringify({
         response_type: "code",
@@ -150,21 +147,18 @@ exports.redirectToSingpass = async (req, res) => {
 
         client_assertion: clientAssertion,
 
-        // ✅ CORRECT ENUM
-        authentication_context_type: "APP_AUTHENTICATION_DEFAULT",
-
-        // 🔥 REQUIRED IN PRACTICE
-        authentication_context_message: "Login to Anytime Pool"
+        // ✅ ONLY REQUIRED Singpass param
+        authentication_context_type: "APP_AUTHENTICATION_DEFAULT"
       }),
       {
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
-          DPoP: dpopProof
+          DPoP: dpop
         }
       }
     );
 
-    const requestUri = parResponse.data.request_uri;
+    const requestUri = response.data.request_uri;
 
     const authUrl =
       `${AUTH_ENDPOINT}?client_id=${clientId}&request_uri=${requestUri}`;
@@ -172,13 +166,13 @@ exports.redirectToSingpass = async (req, res) => {
     return res.redirect(authUrl);
 
   } catch (err) {
-    console.error("PAR Error FULL:", err.response?.data || err.message);
-    return res.status(500).send("Singpass PAR failed");
+    console.error("PAR ERROR:", err.response?.data || err.message);
+    return res.status(500).json(err.response?.data || { error: "PAR failed" });
   }
 };
 
 /* ===============================
-   STEP 2: TOKEN EXCHANGE
+   STEP 2: CALLBACK
 ================================ */
 
 exports.singpassCallback = async (req, res) => {
@@ -190,9 +184,9 @@ exports.singpassCallback = async (req, res) => {
     }
 
     const clientAssertion = generateClientAssertion();
-    const dpopProof = generateDpopProof(TOKEN_ENDPOINT, "POST");
+    const dpop = generateDpop(TOKEN_ENDPOINT, "POST");
 
-    const tokenResponse = await axios.post(
+    const tokenRes = await axios.post(
       TOKEN_ENDPOINT,
       qs.stringify({
         grant_type: "authorization_code",
@@ -209,26 +203,24 @@ exports.singpassCallback = async (req, res) => {
       {
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
-          DPoP: dpopProof
+          DPoP: dpop
         }
       }
     );
 
-    const { id_token } = tokenResponse.data;
-
-    const decoded = jwt.decode(id_token);
+    const decoded = jwt.decode(tokenRes.data.id_token);
 
     if (!decoded || decoded.nonce !== req.session.nonce) {
       return res.status(400).send("Invalid nonce");
     }
 
     return res.json({
-      message: "Singpass login successful",
+      message: "Login success",
       user: decoded
     });
 
   } catch (err) {
-    console.error("Token Exchange Error:", err.response?.data || err.message);
-    return res.status(500).send("Token exchange failed");
+    console.error("TOKEN ERROR:", err.response?.data || err.message);
+    return res.status(500).json(err.response?.data || { error: "Token failed" });
   }
 };
