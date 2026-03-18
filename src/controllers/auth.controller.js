@@ -34,12 +34,12 @@ function generateCodeChallenge(verifier) {
   return base64url(crypto.createHash("sha256").update(verifier).digest());
 }
 
-function generateClientAssertion(aud) {
+function generateClientAssertion() {
   return jwt.sign(
     {
       iss: CLIENT_ID,
       sub: CLIENT_ID,
-      aud,
+      aud: "https://stg-id.singpass.gov.sg/fapi", // 🔥 FIXED
       jti: crypto.randomUUID(),
       exp: Math.floor(Date.now() / 1000) + 300
     },
