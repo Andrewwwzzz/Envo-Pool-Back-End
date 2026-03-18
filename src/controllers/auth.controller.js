@@ -154,7 +154,7 @@ exports.redirectToSingpass = async (req, res) => {
         client_assertion: clientAssertion,
 
         // ✅ FIXED (correct param)
-        authentication_context_type: "singpass"
+        authentication_context_type: "urn:spe:authentication:singpass:qr"
       }),
       {
         headers: {
