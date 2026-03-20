@@ -5,7 +5,7 @@ const Table = require("../models/table");
 const Booking = require("../models/Booking");
 
 /*
-MANUAL CONTROL (ADMIN / FRONTEND)
+MANUAL CONTROL
 */
 router.post("/control/:hardwareId", async (req, res) => {
   try {
@@ -36,7 +36,7 @@ router.post("/control/:hardwareId", async (req, res) => {
 });
 
 /*
-CLEAR MANUAL OVERRIDE (return to automatic mode)
+CLEAR MANUAL OVERRIDE
 */
 router.post("/clear/:hardwareId", async (req, res) => {
   try {
@@ -62,7 +62,7 @@ router.post("/clear/:hardwareId", async (req, res) => {
 });
 
 /*
-DEVICE POLLING (ESP32)
+DEVICE POLLING (TIME-BASED)
 */
 router.get("/:hardwareId", async (req, res) => {
   try {
@@ -83,49 +83,33 @@ router.get("/:hardwareId", async (req, res) => {
       return res.json({ state: "OFF" });
     }
 
-    // 🔥 PRIORITY 2: Booking (SESSION BASED)
+    // 🔥 PRIORITY 2: TIME-BASED BOOKING
+
+    // 🇸🇬 Convert NOW to Singapore time
     const now = new Date();
+    const sgNow = new Date(now.getTime() + (8 * 60 * 60 * 1000));
 
     const booking = await Booking.findOne({
       tableId: table._id,
       status: "confirmed",
       paymentStatus: "paid"
-    });
+    }).sort({ createdAt: -1 });
 
-    if (!booking) {
+    if (!booking || !booking.startTime || !booking.endTime) {
       return res.json({ state: "OFF" });
     }
 
-    // Extract session info
-    const parts = booking.sessionId.split("-");
-    const dateStr = parts.slice(0, 3).join("-");
-    const sessionNumber = parseInt(parts[3]);
+    // 🇸🇬 Convert booking times to SG time
+    const startTime = new Date(new Date(booking.startTime).getTime() + (8 * 60 * 60 * 1000));
+    const endTime = new Date(new Date(booking.endTime).getTime() + (8 * 60 * 60 * 1000));
 
-    // 🔥 DEFINE YOUR SESSION TIMES HERE
-    const sessionMap = {
-      1: { start: 10, end: 12 },
-      2: { start: 12, end: 14 },
-      3: { start: 14, end: 16 },
-      4: { start: 16, end: 18 },
-      5: { start: 18, end: 20 },
-      6: { start: 20, end: 22 }
-    };
-
-    const sessionTime = sessionMap[sessionNumber];
-
-    if (!sessionTime) {
-      return res.json({ state: "OFF" });
-    }
-
-    // Build actual times
-    const startTime = new Date(dateStr);
-    startTime.setHours(sessionTime.start, 0, 0);
-
-    const endTime = new Date(dateStr);
-    endTime.setHours(sessionTime.end, 0, 0);
+    // 🔍 Debug logs
+    console.log("SG NOW:", sgNow);
+    console.log("START:", startTime);
+    console.log("END:", endTime);
 
     // 🔥 FINAL CHECK
-    if (now >= startTime && now <= endTime) {
+    if (sgNow >= startTime && sgNow <= endTime) {
       return res.json({ state: "ON" });
     }
 
