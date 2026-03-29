@@ -15,6 +15,17 @@ const deviceRoutes = require("./routes/device.routes");
 const Booking = require("./models/Booking");
 const Table = require("./models/table");
 
+const adminRoutes = require("./routes/admin.routes");
+app.use("/api/admin", adminRoutes);
+
+const authRoutes = require("./routes/auth.routes");
+app.use("/api/auth", authRoutes);
+
+
+
+
+
+
 const app = express();
 
 /*

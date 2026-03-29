@@ -7,6 +7,17 @@ const userSchema = new mongoose.Schema(
       required: true
     },
 
+    email: {
+      type: String,
+      required: true,
+      unique: true
+    },
+
+    password: {
+      type: String,
+      required: true
+    },
+
     walletBalance: {
       type: Number,
       default: 0
@@ -15,6 +26,17 @@ const userSchema = new mongoose.Schema(
     showName: {
       type: Boolean,
       default: true
+    },
+
+    isVerified: {
+      type: Boolean,
+      default: false
+    },
+
+    verificationMethod: {
+      type: String,
+      enum: ["admin", "singpass", null],
+      default: null
     },
 
     role: {

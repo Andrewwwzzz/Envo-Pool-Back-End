@@ -7,28 +7,20 @@ const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 
 const Booking = require("../models/Booking");
 const Table = require("../models/table");
-const User = require("../models/user");
+
+const auth = require("../middleware/auth");
 
 /*
-========================================
-COMMON VALIDATION
-========================================
+VALIDATION
 */
 async function validateBooking({ userId, tableId, startTime, duration }) {
 
   const start = new Date(startTime);
-  if (isNaN(start.getTime())) {
-    throw new Error("Invalid time format");
-  }
-
   const end = new Date(start.getTime() + duration * 60 * 1000);
 
   const table = await Table.findOne({ hardware_id: tableId });
   if (!table) throw new Error("Table not found");
 
-  /*
-  ❌ Prevent overlapping bookings (pending + confirmed)
-  */
   const conflict = await Booking.findOne({
     tableId: table._id,
     status: { $in: ["pending_payment", "confirmed"] },
@@ -38,9 +30,6 @@ async function validateBooking({ userId, tableId, startTime, duration }) {
 
   if (conflict) throw new Error("Time slot already booked");
 
-  /*
-  🚫 Prevent spam (1 pending booking per user)
-  */
   const existingPending = await Booking.findOne({
     userId,
     status: "pending_payment"
@@ -54,20 +43,14 @@ async function validateBooking({ userId, tableId, startTime, duration }) {
 }
 
 /*
-========================================
-STRIPE FLOW
-========================================
+STRIPE
 */
-router.post("/create-with-payment", async (req, res) => {
+router.post("/create-with-payment", auth, async (req, res) => {
   try {
-    const { userId, tableId, startTime, duration, price } = req.body;
+    const user = req.user;
+    const userId = req.userId;
 
-    if (!price || price <= 0) {
-      return res.status(400).json({ error: "Invalid price" });
-    }
-
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ error: "User not found" });
+    const { tableId, startTime, duration, price } = req.body;
 
     const { table, start, end } =
       await validateBooking({ userId, tableId, startTime, duration });
@@ -116,8 +99,7 @@ router.post("/create-with-payment", async (req, res) => {
     await booking.save();
 
     res.json({
-      checkoutUrl: session.url,
-      bookingId: booking._id
+      checkoutUrl: session.url
     });
 
   } catch (error) {
@@ -126,24 +108,18 @@ router.post("/create-with-payment", async (req, res) => {
 });
 
 /*
-========================================
-WALLET FLOW
-========================================
+WALLET
 */
-router.post("/create-with-wallet", async (req, res) => {
+router.post("/create-with-wallet", auth, async (req, res) => {
 
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    const { userId, tableId, startTime, duration, price } = req.body;
+    const user = req.user;
+    const userId = req.userId;
 
-    if (!price || price <= 0) {
-      throw new Error("Invalid price");
-    }
-
-    const user = await User.findById(userId).session(session);
-    if (!user) throw new Error("User not found");
+    const { tableId, startTime, duration, price } = req.body;
 
     const { table, start, end } =
       await validateBooking({ userId, tableId, startTime, duration });
@@ -164,103 +140,21 @@ router.post("/create-with-wallet", async (req, res) => {
       duration,
       price,
       status: "confirmed",
-      paymentStatus: "paid",
-      paymentLock: false
+      paymentStatus: "paid"
     }], { session });
 
     await session.commitTransaction();
     session.endSession();
 
     res.json({
-      message: "Booking confirmed via wallet",
-      bookingId: booking[0]._id
+      message: "Booking confirmed"
     });
 
   } catch (error) {
-
     await session.abortTransaction();
     session.endSession();
 
-    res.status(400).json({
-      error: error.message
-    });
-  }
-});
-
-/*
-========================================
-TOGGLE NAME VISIBILITY
-========================================
-*/
-router.post("/toggle-name-visibility", async (req, res) => {
-  try {
-    const { userId, showName } = req.body;
-
-    await User.updateOne(
-      { _id: userId },
-      { showName }
-    );
-
-    res.json({ message: "Updated successfully" });
-
-  } catch (error) {
-    res.status(500).json({ error: "Failed to update setting" });
-  }
-});
-
-/*
-========================================
-GET BOOKINGS
-========================================
-*/
-router.get("/", async (req, res) => {
-  try {
-    const bookings = await Booking.find({})
-      .populate("tableId")
-      .sort({ startTime: 1 });
-
-    res.json(bookings);
-  } catch (error) {
-    res.status(500).json({
-      error: "Failed to fetch bookings"
-    });
-  }
-});
-
-/*
-========================================
-AVAILABILITY (WITH NAME + COUNTDOWN)
-========================================
-*/
-router.get("/availability", async (req, res) => {
-  try {
-
-    const { startTime, endTime } = req.query;
-
-    const start = new Date(startTime);
-    const end = new Date(endTime);
-
-    const bookings = await Booking.find({
-      status: { $in: ["pending_payment", "confirmed"] },
-      startTime: { $lt: end },
-      endTime: { $gt: start }
-    }).populate("tableId userId");
-
-    const result = bookings.map(b => ({
-      tableId: b.tableId.hardware_id,
-      startTime: b.startTime,
-      endTime: b.endTime,
-      status: b.status,
-      expiresAt: b.expiresAt,
-      userName: b.userId?.showName ? b.userName : "Anonymous"
-    }));
-
-    res.json(result);
-
-  } catch (error) {
-    res.status(500).json({
-      error: "Failed to fetch availability"
-    });
+    res.status(400).json({ error: error.message });
   }
 });
 
