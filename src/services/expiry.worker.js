@@ -7,20 +7,26 @@ async function expireBookings() {
   isRunning = true;
 
   try {
-    const now = new Date(); // SG time
+    const now = new Date();
 
+    /*
+    🔥 EXPIRE unpaid bookings
+    */
     const result = await Booking.updateMany(
       {
-        status: { $in: ["pending", "confirmed"] },
-        endTime: { $lt: now }
+        status: "pending_payment",
+        expiresAt: { $lt: now }
       },
       {
-        $set: { status: "completed" }
+        $set: {
+          status: "expired",
+          paymentLock: false
+        }
       }
     );
 
     if (result.modifiedCount > 0) {
-      console.log(`Expired ${result.modifiedCount} bookings`);
+      console.log(`Expired ${result.modifiedCount} unpaid bookings`);
     }
 
   } catch (error) {

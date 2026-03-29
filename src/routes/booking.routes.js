@@ -14,7 +14,7 @@ const User = require("../models/user");
 COMMON VALIDATION
 ========================================
 */
-async function validateBooking({ tableId, startTime, duration }) {
+async function validateBooking({ userId, tableId, startTime, duration }) {
 
   const start = new Date(startTime);
   if (isNaN(start.getTime())) {
@@ -26,18 +26,31 @@ async function validateBooking({ tableId, startTime, duration }) {
   const table = await Table.findOne({ hardware_id: tableId });
   if (!table) throw new Error("Table not found");
 
+  /*
+  ❌ Prevent overlapping bookings (pending + confirmed)
+  */
   const conflict = await Booking.findOne({
-  tableId: table._id,
-  status: { $in: ["pending_payment", "confirmed"] },
-  startTime: { $lt: end },
-  endTime: { $gt: start }
-});
+    tableId: table._id,
+    status: { $in: ["pending_payment", "confirmed"] },
+    startTime: { $lt: end },
+    endTime: { $gt: start }
+  });
 
   if (conflict) throw new Error("Time slot already booked");
 
-  const totalPrice = table.basePrice * (duration / 60);
+  /*
+  🚫 Prevent spam (1 pending booking per user)
+  */
+  const existingPending = await Booking.findOne({
+    userId,
+    status: "pending_payment"
+  });
 
-  return { table, start, end, totalPrice };
+  if (existingPending) {
+    throw new Error("You already have a pending booking");
+  }
+
+  return { table, start, end };
 }
 
 /*
@@ -47,19 +60,28 @@ STRIPE FLOW
 */
 router.post("/create-with-payment", async (req, res) => {
   try {
-    const { userId, tableId, startTime, duration } = req.body;
+    const { userId, tableId, startTime, duration, price } = req.body;
 
-    const { table, start, end, totalPrice } =
-      await validateBooking({ tableId, startTime, duration });
+    if (!price || price <= 0) {
+      return res.status(400).json({ error: "Invalid price" });
+    }
 
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const { table, start, end } =
+      await validateBooking({ userId, tableId, startTime, duration });
+
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
     const booking = new Booking({
       userId,
+      userName: user.name,
       tableId: table._id,
       startTime: start,
       endTime: end,
       duration,
+      price,
       status: "pending_payment",
       paymentStatus: "unpaid",
       paymentLock: true,
@@ -78,7 +100,7 @@ router.post("/create-with-payment", async (req, res) => {
             product_data: {
               name: `Pool Booking - ${table.name}`
             },
-            unit_amount: Math.round(totalPrice * 100)
+            unit_amount: Math.round(price * 100)
           },
           quantity: 1
         }
@@ -105,7 +127,7 @@ router.post("/create-with-payment", async (req, res) => {
 
 /*
 ========================================
-WALLET FLOW (TRANSACTION SAFE)
+WALLET FLOW
 ========================================
 */
 router.post("/create-with-wallet", async (req, res) => {
@@ -114,41 +136,38 @@ router.post("/create-with-wallet", async (req, res) => {
   session.startTransaction();
 
   try {
-    const { userId, tableId, startTime, duration } = req.body;
+    const { userId, tableId, startTime, duration, price } = req.body;
 
-    const { table, start, end, totalPrice } =
-      await validateBooking({ tableId, startTime, duration });
+    if (!price || price <= 0) {
+      throw new Error("Invalid price");
+    }
 
     const user = await User.findById(userId).session(session);
     if (!user) throw new Error("User not found");
 
-    if (user.walletBalance < totalPrice) {
+    const { table, start, end } =
+      await validateBooking({ userId, tableId, startTime, duration });
+
+    if (user.walletBalance < price) {
       throw new Error("Insufficient wallet balance");
     }
 
-    /*
-    🔒 Deduct wallet
-    */
-    user.walletBalance -= totalPrice;
+    user.walletBalance -= price;
     await user.save({ session });
 
-    /*
-    🔒 Create booking
-    */
     const booking = await Booking.create([{
       userId,
+      userName: user.name,
       tableId: table._id,
       startTime: start,
       endTime: end,
       duration,
+      price,
       status: "confirmed",
       paymentStatus: "paid",
       paymentLock: false
     }], { session });
 
-    /*
-    ✅ Commit
-    */
     await session.commitTransaction();
     session.endSession();
 
@@ -170,18 +189,37 @@ router.post("/create-with-wallet", async (req, res) => {
 
 /*
 ========================================
-GET ALL BOOKINGS (FOR FRONTEND)
+TOGGLE NAME VISIBILITY
+========================================
+*/
+router.post("/toggle-name-visibility", async (req, res) => {
+  try {
+    const { userId, showName } = req.body;
+
+    await User.updateOne(
+      { _id: userId },
+      { showName }
+    );
+
+    res.json({ message: "Updated successfully" });
+
+  } catch (error) {
+    res.status(500).json({ error: "Failed to update setting" });
+  }
+});
+
+/*
+========================================
+GET BOOKINGS
 ========================================
 */
 router.get("/", async (req, res) => {
   try {
-
     const bookings = await Booking.find({})
       .populate("tableId")
       .sort({ startTime: 1 });
 
     res.json(bookings);
-
   } catch (error) {
     res.status(500).json({
       error: "Failed to fetch bookings"
@@ -191,7 +229,7 @@ router.get("/", async (req, res) => {
 
 /*
 ========================================
-AVAILABILITY
+AVAILABILITY (WITH NAME + COUNTDOWN)
 ========================================
 */
 router.get("/availability", async (req, res) => {
@@ -199,28 +237,22 @@ router.get("/availability", async (req, res) => {
 
     const { startTime, endTime } = req.query;
 
-    if (!startTime || !endTime) {
-      return res.status(400).json({
-        error: "Missing time range"
-      });
-    }
-
     const start = new Date(startTime);
     const end = new Date(endTime);
 
     const bookings = await Booking.find({
       status: { $in: ["pending_payment", "confirmed"] },
-      $or: [
-        { startTime: { $lt: end, $gte: start } },
-        { endTime: { $gt: start, $lte: end } },
-        { startTime: { $lte: start }, endTime: { $gte: end } }
-      ]
-    }).populate("tableId");
+      startTime: { $lt: end },
+      endTime: { $gt: start }
+    }).populate("tableId userId");
 
     const result = bookings.map(b => ({
       tableId: b.tableId.hardware_id,
       startTime: b.startTime,
-      endTime: b.endTime
+      endTime: b.endTime,
+      status: b.status,
+      expiresAt: b.expiresAt,
+      userName: b.userId?.showName ? b.userName : "Anonymous"
     }));
 
     res.json(result);
