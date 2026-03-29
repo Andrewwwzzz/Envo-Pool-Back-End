@@ -7,11 +7,14 @@ const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 
 const Booking = require("../models/Booking");
 const Table = require("../models/table");
+const BookingLog = require("../models/BookingLog");
 
 const auth = require("../middleware/auth");
 
 /*
+========================================
 VALIDATION
+========================================
 */
 async function validateBooking({ userId, tableId, startTime, duration }) {
 
@@ -43,14 +46,15 @@ async function validateBooking({ userId, tableId, startTime, duration }) {
 }
 
 /*
-STRIPE BOOKING
+========================================
+STRIPE BOOKING (PENDING)
+========================================
 */
 router.post("/create-with-payment", auth, async (req, res) => {
   try {
     const user = req.user;
     const userId = req.userId;
 
-    // 🔴 BLOCK HERE (NOT IN AUTH)
     if (!user.isVerified) {
       return res.status(403).json({
         error: "Account not verified"
@@ -79,6 +83,24 @@ router.post("/create-with-payment", auth, async (req, res) => {
     });
 
     await booking.save();
+
+    /*
+    🔥 LOG: CREATED
+    */
+    await BookingLog.create({
+      bookingId: booking._id,
+      action: "created",
+      performedBy: userId
+    });
+
+    /*
+    🔥 LOG: PENDING
+    */
+    await BookingLog.create({
+      bookingId: booking._id,
+      action: "pending_payment",
+      performedBy: userId
+    });
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["paynow"],
@@ -116,7 +138,9 @@ router.post("/create-with-payment", auth, async (req, res) => {
 });
 
 /*
-WALLET BOOKING
+========================================
+WALLET BOOKING (INSTANT CONFIRM)
+========================================
 */
 router.post("/create-with-wallet", auth, async (req, res) => {
 
@@ -155,6 +179,24 @@ router.post("/create-with-wallet", auth, async (req, res) => {
       paymentStatus: "paid"
     }], { session });
 
+    /*
+    🔥 LOG: CREATED
+    */
+    await BookingLog.create({
+      bookingId: booking[0]._id,
+      action: "created",
+      performedBy: userId
+    });
+
+    /*
+    🔥 LOG: CONFIRMED
+    */
+    await BookingLog.create({
+      bookingId: booking[0]._id,
+      action: "confirmed",
+      performedBy: userId
+    });
+
     await session.commitTransaction();
     session.endSession();
 
@@ -169,6 +211,56 @@ router.post("/create-with-wallet", auth, async (req, res) => {
     console.error("WALLET ERROR:", error);
 
     res.status(400).json({ error: error.message });
+  }
+});
+
+/*
+========================================
+GET BOOKINGS (FOR FRONTEND)
+========================================
+*/
+router.get("/", async (req, res) => {
+  try {
+    const bookings = await Booking.find();
+
+    res.json(bookings);
+
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch bookings" });
+  }
+});
+
+/*
+========================================
+EXPIRE PENDING BOOKINGS (AUTO CLEANUP)
+========================================
+*/
+router.post("/expire-pending", async (req, res) => {
+  try {
+    const now = new Date();
+
+    const expired = await Booking.find({
+      status: "pending_payment",
+      expiresAt: { $lt: now }
+    });
+
+    for (const booking of expired) {
+      booking.status = "expired";
+      await booking.save();
+
+      await BookingLog.create({
+        bookingId: booking._id,
+        action: "expired"
+      });
+    }
+
+    res.json({
+      message: "Expired bookings cleaned",
+      count: expired.length
+    });
+
+  } catch (error) {
+    res.status(500).json({ error: "Expire job failed" });
   }
 });
 
