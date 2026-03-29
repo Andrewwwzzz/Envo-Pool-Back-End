@@ -17,12 +17,18 @@ router.post("/register", async (req, res) => {
 
     const { name, email, password } = req.body;
 
+    /*
+    VALIDATION
+    */
     if (!name || !email || !password) {
       return res.status(400).json({
-        error: "Missing fields"
+        error: "Missing name, email or password"
       });
     }
 
+    /*
+    CHECK EXISTING
+    */
     const existing = await User.findOne({ email });
     if (existing) {
       return res.status(400).json({
@@ -30,8 +36,14 @@ router.post("/register", async (req, res) => {
       });
     }
 
+    /*
+    HASH PASSWORD
+    */
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    /*
+    CREATE USER
+    */
     const user = await User.create({
       name,
       email,
@@ -45,7 +57,8 @@ router.post("/register", async (req, res) => {
     });
 
   } catch (error) {
-    console.error("REGISTER ERROR:", error);
+    console.error("REGISTER ERROR:", error); // 🔥 THIS IS KEY
+
     res.status(500).json({
       error: "Register failed"
     });
@@ -59,8 +72,6 @@ LOGIN
 */
 router.post("/login", async (req, res) => {
   try {
-    console.log("LOGIN BODY:", req.body);
-
     const { email, password } = req.body;
 
     if (!email || !password) {
@@ -88,9 +99,7 @@ router.post("/login", async (req, res) => {
     const token = jwt.sign(
       { id: user._id },
       process.env.JWT_SECRET,
-      {
-        expiresIn: process.env.JWT_EXPIRES_IN || "7d"
-      }
+      { expiresIn: process.env.JWT_EXPIRES_IN }
     );
 
     res.json({
@@ -98,7 +107,6 @@ router.post("/login", async (req, res) => {
       user: {
         id: user._id,
         name: user.name,
-        email: user.email,
         isVerified: user.isVerified,
         role: user.role
       }
@@ -106,6 +114,7 @@ router.post("/login", async (req, res) => {
 
   } catch (error) {
     console.error("LOGIN ERROR:", error);
+
     res.status(500).json({
       error: "Login failed"
     });
