@@ -57,10 +57,16 @@ app.get("/health", (req, res) => {
 MONGODB
 ========================================
 */
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log("MongoDB connected"))
-  .catch(err => console.error("MongoDB error:", err));
-
+mongoose.connect(process.env.MONGO_URI, {
+  serverSelectionTimeoutMS: 5000
+})
+.then(() => {
+  console.log("MongoDB connected");
+})
+.catch(err => {
+  console.error("MongoDB connection error:", err);
+  process.exit(1); // 🔥 CRASH EARLY IF FAIL
+});
 /*
 ========================================
 START SERVER
