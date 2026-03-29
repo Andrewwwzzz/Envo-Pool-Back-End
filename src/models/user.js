@@ -13,14 +13,14 @@ const userSchema = new mongoose.Schema(
       required: false
     },
 
-    /* Singpass Login */
-    singpassId: {
+    /* Add email or phone later if needed */
+    email: {
       type: String,
+      required: false,
       unique: true,
       sparse: true
     },
 
-    /* Common */
     role: {
       type: String,
       enum: ["user", "admin"],

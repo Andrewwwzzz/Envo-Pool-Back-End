@@ -7,13 +7,8 @@ const session = require("express-session");
 
 const bookingRoutes = require("./routes/booking.routes");
 const paymentRoutes = require("./routes/payment.routes");
-const authRoutes = require("./routes/auth.routes");
-const jwksRoutes = require("./routes/jwks.routes");
 
-/* NEW TEST ROUTE */
-const singpassTestRoutes = require("./routes/singpass.test.routes");
-
-/* 🔥 NEW ROUTE */
+/* 🔥 DEVICE ROUTES */
 const deviceRoutes = require("./routes/device.routes");
 
 /* 🔥 MODELS */
@@ -31,11 +26,11 @@ app.use(express.json());
 app.use(cors());
 
 /*
-Session middleware
+Session middleware (kept if you want sessions later)
 */
 app.use(
   session({
-    secret: process.env.SESSION_SECRET || "singpass-secret",
+    secret: process.env.SESSION_SECRET || "default-secret",
     resave: false,
     saveUninitialized: true,
     cookie: {
@@ -46,24 +41,13 @@ app.use(
 );
 
 /*
-JWKS endpoint
-*/
-app.use("/", jwksRoutes);
-
-/*
-Singpass test endpoint
-*/
-app.use("/api", singpassTestRoutes);
-
-/*
 Application routes
 */
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/payments", paymentRoutes);
-app.use("/api/auth", authRoutes);
 
 /*
-🔥 NEW: MANUAL CONTROL ROUTES
+🔥 DEVICE CONTROL ROUTES
 */
 app.use("/api/device-control", deviceRoutes);
 
@@ -75,20 +59,17 @@ app.get("/api/device/:hardwareId", async (req, res) => {
     const { hardwareId } = req.params;
     const now = new Date();
 
-    // 🔐 Optional: API key check (keep if using security)
     const apiKey = req.headers["x-api-key"];
     if (process.env.DEVICE_API_KEY && apiKey !== process.env.DEVICE_API_KEY) {
       return res.status(401).json({ error: "Unauthorized device" });
     }
 
-    // 🔥 Find table
     const table = await Table.findOne({ hardware_id: hardwareId });
 
     if (!table) {
       return res.json({ state: "OFF" });
     }
 
-    // 🔥 MANUAL OVERRIDE TAKES PRIORITY
     if (table.manualOverride === "ON") {
       return res.json({ state: "ON" });
     }
@@ -97,7 +78,6 @@ app.get("/api/device/:hardwareId", async (req, res) => {
       return res.json({ state: "OFF" });
     }
 
-    // 🔥 AUTO MODE (booking-based)
     const booking = await Booking.findOne({
       tableId: table._id,
       status: "confirmed",

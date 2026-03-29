@@ -5,7 +5,6 @@ const Table = require("../models/table");
 // Seed tables route
 router.post("/seed-tables", async (req, res) => {
   try {
-    // Remove existing tables
     await Table.deleteMany({});
 
     const tables = [];
@@ -13,9 +12,10 @@ router.post("/seed-tables", async (req, res) => {
     for (let i = 1; i <= 10; i++) {
       tables.push({
         tableNumber: i,
-        name: `Table ${i}`,   // ✅ FIXED
+        name: `Table ${i}`,
         basePrice: 12,
-        isActive: true
+        isActive: true,
+        hardware_id: `TABLE_${i}` // 🔥 REQUIRED FIX
       });
     }
 
