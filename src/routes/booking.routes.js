@@ -2,6 +2,8 @@ const express = require("express");
 const router = express.Router();
 
 const mongoose = require("mongoose");
+const Stripe = require("stripe");
+const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 
 const Booking = require("../models/Booking");
 const Table = require("../models/table");
@@ -23,7 +25,7 @@ async function validateBooking({ tableId, startTime, duration }) {
   if (!table) throw new Error("Table not found");
 
   const conflict = await Booking.findOne({
-    tableId: tableId, // ✅ hardware_id only
+    tableId: tableId, // ✅ hardware_id ONLY
     status: { $in: ["pending_payment", "confirmed"] },
     startTime: { $lt: end },
     endTime: { $gt: start }
@@ -33,6 +35,90 @@ async function validateBooking({ tableId, startTime, duration }) {
 
   return { start, end };
 }
+
+/*
+========================================
+PAYNOW / STRIPE BOOKING (PENDING)
+========================================
+*/
+router.post("/create-with-payment", auth, async (req, res) => {
+  try {
+    const io = req.app.get("io");
+
+    const user = req.user;
+
+    if (!user.isVerified) {
+      return res.status(403).json({ error: "Account not verified" });
+    }
+
+    const { tableId, startTime, duration, price } = req.body;
+
+    const { start, end } =
+      await validateBooking({ tableId, startTime, duration });
+
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    // create pending booking
+    const booking = new Booking({
+      userId: user._id,
+      userName: user.name,
+      tableId: tableId, // ✅ hardware_id
+      startTime: start,
+      endTime: end,
+      duration,
+      price,
+      status: "pending_payment",
+      paymentStatus: "unpaid",
+      paymentMethod: "paynow",
+      expiresAt
+    });
+
+    await booking.save();
+
+    // booking log
+    await BookingLog.create({
+      bookingId: booking._id,
+      action: "pending_payment",
+      performedBy: user._id
+    });
+
+    // stripe session
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["paynow"],
+      mode: "payment",
+      line_items: [
+        {
+          price_data: {
+            currency: "sgd",
+            product_data: {
+              name: `Pool Booking ${tableId}`
+            },
+            unit_amount: Math.round(price * 100)
+          },
+          quantity: 1
+        }
+      ],
+      metadata: {
+        bookingId: booking._id.toString()
+      },
+      success_url: process.env.STRIPE_SUCCESSFUL_URL,
+      cancel_url: process.env.STRIPE_CANCEL_URL
+    });
+
+    booking.stripeSessionId = session.id;
+    await booking.save();
+
+    io.emit("booking_updated");
+
+    res.json({
+      checkoutUrl: session.url
+    });
+
+  } catch (error) {
+    console.error("PAYNOW ERROR:", error);
+    res.status(400).json({ error: error.message });
+  }
+});
 
 /*
 ========================================
@@ -69,7 +155,7 @@ router.post("/create-with-wallet", auth, async (req, res) => {
     const booking = await Booking.create([{
       userId: user._id,
       userName: user.name,
-      tableId: tableId, // ✅ hardware_id
+      tableId: tableId,
       startTime: start,
       endTime: end,
       duration,
@@ -100,7 +186,7 @@ router.post("/create-with-wallet", auth, async (req, res) => {
     await session.commitTransaction();
     session.endSession();
 
-    // realtime
+    // realtime updates
     io.emit("booking_updated");
     io.emit("wallet_updated", { userId: user._id });
     io.emit("transaction_updated");
@@ -121,7 +207,7 @@ router.post("/create-with-wallet", auth, async (req, res) => {
 
 /*
 ========================================
-GET BOOKINGS
+GET BOOKINGS (FOR UI)
 ========================================
 */
 router.get("/", async (req, res) => {
