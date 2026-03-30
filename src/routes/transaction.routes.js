@@ -8,7 +8,8 @@ router.get("/", auth, async (req, res) => {
   try {
     const transactions = await Transaction.find()
       .sort({ createdAt: -1 })
-      .populate("userId", "name email");
+      .limit(50) // 🔥 LIMIT FOR SPEED
+      .lean();   // 🔥 MUCH FASTER
 
     res.json(transactions);
 

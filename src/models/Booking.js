@@ -13,10 +13,8 @@ const bookingSchema = new mongoose.Schema(
     },
 
     tableId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Table",
-      required: true
-    },
+  type: String, // ✅ NOT ObjectId anymore
+},
 
     startTime: Date,
     endTime: Date,
